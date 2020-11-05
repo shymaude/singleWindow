@@ -1,0 +1,35 @@
+mod ST-SAMPLER is
+	protecting RANDOM .
+	protecting COUNTER .
+	protecting RAT .
+	protecting NAT .
+	protecting CONVERSION .
+
+	op rand : -> Float .
+	op sampleStNormal : -> Float .
+	op sampleNormal : Float Float -> Float .
+	op sampleExp : Float -> Float .
+	op sampleBernulli : Float -> Bool .
+	op sampleUniform : Float Float -> Float .
+	op sampleNatUniform : Nat Nat -> Nat .
+	op sampleIntUniform : Int Int -> Int .
+	op sampleNat : Nat -> Nat .
+
+	vars Mean Deviation Prob Begin End : Float .
+	vars BeginNat EndNat UpperBound : Nat .
+	vars BeginInt EndInt : Int .
+
+	eq rand = float(random(counter + 1) / 4294967296) .
+
+	eq sampleStNormal = sqrt(-2.0 * log(rand)) * cos(2.0 * pi * rand) .
+	eq sampleNormal(Mean , Deviation) = 
+		Mean + Deviation * sqrt(-2.0 * log(rand)) * cos(2.0 * pi * rand) .
+	eq sampleExp(Mean) = - Mean * log(rand) .
+	eq sampleBernulli(Prob) = if rand < Prob then true else false fi .
+	eq sampleUniform(Begin , End) = Begin + rand * (End - Begin) .
+	eq sampleNatUniform(BeginNat , EndNat) = BeginNat + 
+	  (random(counter + 1) rem ((EndNat + 1) - BeginNat)) .
+	eq sampleIntUniform(BeginInt , EndInt) = BeginInt + 
+	  (random(counter + 1) rem ((EndInt + 1) - BeginInt)) .
+	eq sampleNat(UpperBound) = random(counter + 1) rem UpperBound .
+endm

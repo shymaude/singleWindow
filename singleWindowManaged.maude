@@ -1,0 +1,156 @@
+in singleWindow.maude
+
+fmod PARAMETERS is
+	pr	NAT .
+	pr	FLOAT .
+	ops T dt : -> Float .
+	op N : -> Nat .
+	ops L0 L1 : -> Nat .
+	eq	T = 40.0 .
+	eq	dt = 0.1 .
+	ops minDeliveryTime maxDeliveryTime
+		minSubmitTime maxSubmitTime
+		minProcessTime maxProcessTime
+		minProcessingTime maxProcessingTime
+		minManagingTime maxManagingTime
+		: -> Float .
+	eq minDeliveryTime = 0.1 .
+	eq maxDeliveryTime = 0.2 .
+	eq minSubmitTime = 0.1 .
+	eq maxSubmitTime = 0.2 .
+	eq minProcessTime = 0.05 .
+	eq maxProcessTime = 0.1 .
+	eq minProcessingTime = 0.5 .
+	eq maxProcessingTime = 1.5 .
+	eq minManagingTime = 4.0 .
+	eq maxManagingTime = 4.05 .
+	eq N = 7 .
+	eq L0 = 50 .
+	eq L1 = 80 .
+endfm
+
+fmod OFFICER is
+	pr COMMANDS .
+	sort OfficerState .
+	ops idle busy : -> OfficerState [ctor] .
+	op Officer : -> Class [ctor] .
+	op state :_ : OfficerState -> Attribute [gather (&)] .
+	op releasing :_ : Bool -> Attribute [gather (&)] .
+endfm
+
+fmod MANAGER-COMMANDS is
+	pr COMMANDS .
+	op manageOfficers : -> Attribute [ctor] .
+	op releaseOfficer : -> Attribute [ctor] .
+endfm
+
+fmod MANAGER is
+	pr MANAGER-COMMANDS .
+	op Manager : -> Class [ctor] .
+	op numOfficers :_ : Nat -> Attribute [gather (&)] .
+endfm
+
+mod MANAGER-DYNAMICS is
+	pr	SYSTEM .
+	pr	MANAGER .
+	
+	var t timeStep : Float .
+	var conf : Conf .
+	var attrSet : AttributeSet .
+	var id numOfficers currentAppId : Nat .
+	var appQueue : AppQueue .
+
+	crl < id : Manager | numOfficers : s numOfficers >
+		< id <- manageOfficers >
+		=>
+		< id : Manager | numOfficers : s numOfficers >
+		if numOfficers == 0 .
+	
+	crl	{
+			< id : Manager | numOfficers : s numOfficers >
+			< id <- manageOfficers >
+			queue(appQueue)
+			conf, time(t), app(currentAppId)
+		}
+		=>
+		if queueLength(queue(appQueue)) > L1
+			then
+				{
+					< s s numOfficers : Officer | state : idle, releasing : false >
+					< id : Manager | numOfficers : s s numOfficers >
+					[ sampleUniform(minManagingTime, maxManagingTime), < 1 <- manageOfficers > ]
+					queue(appQueue)
+					conf, time(t), app(currentAppId)
+				}
+			else
+				if queueLength(queue(appQueue)) < L0
+					then
+						{
+							< id : Manager | numOfficers : numOfficers >
+							[ sampleUniform(minDeliveryTime, maxDeliveryTime), < s numOfficers <- releaseOfficer > ]
+							[ sampleUniform(minManagingTime, maxManagingTime), < 1 <- manageOfficers > ]
+							queue(appQueue)
+							conf, time(t), app(currentAppId)
+						}
+					else
+						{
+							< id : Manager | numOfficers : s numOfficers >
+							[ sampleUniform(minManagingTime, maxManagingTime), < 1 <- manageOfficers > ]
+							queue(appQueue)
+							conf, time(t), app(currentAppId)
+						}
+				fi
+		fi
+	if numOfficers > 0 .
+				
+	eq	processTick(< id : Manager | attrSet > conf, timeStep) = < id : Manager | attrSet > processTick(conf, timeStep) .
+endm
+
+mod MANAGED-OFFICER-DYNAMICS is
+	pr	SYSTEM .
+	pr	OFFICER .
+	pr	MANAGER-COMMANDS .
+	
+	var attrSet : AttributeSet .
+	var id : Nat .
+	var releasing : Bool .
+	
+	rl	< id : Officer | releasing : releasing, attrSet >
+		< id <- releaseOfficer >
+		=>
+		< id : Officer | releasing : true, attrSet > .
+endm
+
+mod SYSTEM-DYNAMICS is
+	inc CLIENT-DYNAMICS .
+	inc OFFICER-DYNAMICS .
+	inc MANAGED-OFFICER-DYNAMICS .
+	inc MANAGER-DYNAMICS .
+	inc DOC-DYNAMICS .
+
+	op	initState : -> Config [ctor] .
+	
+	op	initOfficers : Nat -> ActiveConf [ctor] .
+	
+	var id : Nat .
+	
+	eq	initState =  {
+			< 1 : Client | accepted : 0, incomplete : 0, docProcessingTimeMean : 0.0, docProcessingTimeSquaredMean : 0.0, docProcessed : 0 >
+			< 1 : Manager | numOfficers : N >
+			[ sampleUniform(minSubmitTime, maxSubmitTime), < 1 <- submit > ]
+			[ sampleUniform(minManagingTime, maxManagingTime), < 1 <- manageOfficers > ]
+			initOfficers(N)
+			queue(empty)
+			nextId(1)
+			, time(0.0), app(0)
+		} .
+	
+	rl	initOfficers(s id)
+		=>
+		< s id : Officer | state : idle, releasing : false >
+		initOfficers(id)
+		[ sampleUniform(minProcessTime, maxProcessTime), < s id <- process > ] .
+		
+	eq	initOfficers(0) = none .
+
+endm

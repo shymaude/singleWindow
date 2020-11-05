@@ -1,0 +1,153 @@
+load stsampler.maude
+
+fmod CLASS is
+	sort	Class .
+endfm
+
+view Class from TRIV to CLASS is
+	sort Elt to Class .
+endv
+
+fmod SET-CLASS is
+	pr	CLASS .
+	pr  SET{Class} .
+endfm
+
+fmod ATTRIBUTE-SET is
+	pr	NAT .
+	pr	BOOL .
+	pr	FLOAT .
+
+	sort	Attribute .
+	sort	AttributeSet .	
+	subsort	Attribute < AttributeSet .	
+	op	none : -> Attribute [ctor] .
+	op	_,_ : AttributeSet AttributeSet -> AttributeSet [ctor assoc comm id: none] .
+endfm
+
+fmod OBJECT is
+	pr	CLASS .
+	pr	ATTRIBUTE-SET .
+
+	sort	Object .
+	op	<_:_|_> : Nat Class AttributeSet -> Object [ctor format (d d d d d d d d)] .
+endfm
+
+view Object from TRIV to OBJECT is
+	sort Elt to Object .
+endv
+
+fmod LIST-OBJECT is
+	pr	OBJECT .
+	pr  LIST{Object} .
+endfm
+
+fmod MESSAGE is
+	pr	ATTRIBUTE-SET .
+
+	sort Message .
+	op	<_<-_> : Nat AttributeSet -> Message [ctor format (d d d d d d)] .
+endfm
+
+fmod DELAYED-MESSAGE is
+	pr	MESSAGE .
+	
+	sort DelayedMessage .
+	op	[_,_] : Float Message -> DelayedMessage [ctor format (d d d d d d)] .
+endfm
+
+fmod CONF is
+	pr	OBJECT .
+	pr	MESSAGE .
+	pr	DELAYED-MESSAGE .
+	sorts	Conf ActiveConf TickingConf .
+	subsort Conf < ActiveConf .
+	subsort Conf < TickingConf .
+	subsort	Object < Conf .
+	subsort	DelayedMessage < Conf .
+	subsort	Message < ActiveConf .
+	op	none : -> Conf [ctor] .
+	op	__ : Conf Conf -> Conf [ctor assoc comm id: none format (d nt d) ] .
+	op	__ : ActiveConf ActiveConf -> ActiveConf [ctor assoc comm id: none format (d nt d) ] .
+	op	__ : TickingConf TickingConf -> TickingConf [ctor assoc comm id: none format (d nt d) ] .
+	op	processTick : Conf Float -> TickingConf [ctor] .
+	op	computeTimeStep : Conf Float -> Float .
+endfm
+
+fmod APP-QUEUE is
+	pr CONF .
+	
+	sort AppQueue .
+	subsort Object < AppQueue .
+	
+	op	empty : -> AppQueue [ctor] .
+	op	_,_ : AppQueue AppQueue -> AppQueue [ctor assoc id: empty format (d nt nt d) ] .
+	
+	op queue : AppQueue -> Conf .
+	
+	var conf : Conf .
+	var appQueue : AppQueue .
+	var timeStep : Float .	
+	var obj : Object .
+	var n : Nat .
+
+	op	queueLength : Conf -> Nat .
+	op	queueLength : Conf Nat -> Nat .
+	eq	queueLength(queue(appQueue) conf) = queueLength(queue(appQueue) conf, 0) .
+	eq	queueLength(queue(obj, appQueue) conf, n) = queueLength(queue(appQueue) conf, s n) .
+	eq	queueLength(queue(empty) conf, n) = n .
+
+	eq	processTick(queue(appQueue) conf, timeStep) = queue(appQueue) processTick(conf, timeStep) .
+endfm
+
+fmod ID-PROVIDER is
+	pr	CONF .
+	op	nextId : Nat -> Conf [ctor] .
+	var conf : Conf .
+	var	nextId : Nat .
+	var	timeStep : Float .
+	eq	processTick(nextId(nextId) conf, timeStep) = nextId(nextId) processTick(conf, timeStep) .
+endfm
+
+mod	SYSTEM is
+	pr	ST-SAMPLER .
+	pr	PARAMETERS .
+	pr	CONF .
+	pr	CLIENT .
+	pr	OFFICER .
+	pr	DOC .
+	pr	APP-QUEUE .
+	pr	ID-PROVIDER .
+
+	sort	Config .
+	op	{_,time(_),_,app(_)} : Conf Float Float Nat -> Config [ctor format (d nt d nt d d d d d d d d d d d d)] .
+	op	{_,time(_),app(_)} : ActiveConf Float Nat -> Config [ctor format (d nt d nt d d d d d d d d d d)] .
+	op	{_,time(_),app(_)} : TickingConf Float Nat -> Config [ctor format (d nt d nt d d d d d d d d d d)] .
+		
+	op	tick : Config -> Config [ctor] .
+	
+	var config : Config .
+	var conf : Conf .
+	var id : Nat .
+	var t timeStep : Float .
+	var	appQueue : AppQueue .
+	var class : Class .
+	var attrSet : AttributeSet .
+
+	eq	tick({ conf, time(t), app(id) }) = { conf, time(t), computeTimeStep(conf, dt), app(id) } .
+
+	eq	{ conf, time(t), timeStep, app(id) } = { processTick(conf, timeStep), time(t + timeStep), app(id) } .
+
+	*** Compute time step as the minimum between the fixed time step dt and the duration to the next scheduled message arrival time
+	eq	computeTimeStep([t, msg] conf, timeStep) = computeTimeStep(conf, if t > timeStep then timeStep else t fi ) .
+	eq	computeTimeStep(queue(appQueue) conf, timeStep) = computeTimeStep(conf, timeStep) .
+	eq	computeTimeStep(nextId(id) conf, timeStep) = computeTimeStep(conf, timeStep) .
+	eq	computeTimeStep(< id : class | attrSet > conf, timeStep) = computeTimeStep(conf, timeStep) .
+	eq	computeTimeStep(none, timeStep) = timeStep .
+	
+	var msg : Message .
+	
+	rl	processTick([t, msg] conf, timeStep) => [t - timeStep, msg] processTick(conf, timeStep) .
+	eq	processTick(none, timeStep) = none .
+	ceq [t, msg] = msg if t <= 0.0 . 
+endm

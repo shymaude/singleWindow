@@ -1,0 +1,436 @@
+in inc/system.maude
+
+fmod	PARAMETERS is
+	pr	NAT .
+	pr	FLOAT .
+	ops T dt : -> Float .
+	op N : -> Nat .
+	eq	T = 40.0 .
+	eq	dt = 0.1 .
+	ops minDeliveryTime maxDeliveryTime
+		minSubmitTime maxSubmitTime
+		minProcessTime maxProcessTime
+		minProcessingTime maxProcessingTime
+		: -> Float .
+	eq minDeliveryTime = 0.1 .
+	eq maxDeliveryTime = 0.2 .
+	eq minSubmitTime = 0.1 .
+	eq maxSubmitTime = 0.2 .
+	eq minProcessTime = 0.05 .
+	eq maxProcessTime = 0.1 .
+	eq minProcessingTime = 0.5 .
+	eq maxProcessingTime = 1.5 .
+	eq N = 7 .
+endfm
+
+fmod COMMANDS is
+	pr	SET-CLASS .
+	pr	PARAMETERS .
+	pr	OBJECT .
+	pr	DELAYED-MESSAGE .
+	*** Commands
+	op submit : -> Attribute [ctor] .
+	op additionalSubmit : -> Attribute [ctor] .
+	op process : -> Attribute [ctor] .
+	op addProcessAndAccept : -> Attribute [ctor] .
+	op addProcessAndIncomplete : -> Attribute [ctor] .
+	*** Parameters
+	op accepted :_ : Nat -> Attribute [gather (&)] .
+	op incomplete :_ : Nat -> Attribute [gather (&)] .
+	op missing :_ : Set{Class} -> Attribute [gather (&)] .
+	op submitTime :_ : Float -> Attribute [gather (&)] .
+	op processingTime :_ : Float -> Attribute [gather (&)] .
+	op clientId :_ : Nat -> Attribute [gather (&)] .
+	op appId :_ : Nat -> Attribute [gather (&)] .
+	op missingDoc :_ : Class -> Attribute [gather (&)] .	
+	op missingDocs :_ : Set{Class} -> Attribute [gather (&)] .
+	op submitTime :_ : Float -> Attribute [gather (&)] .
+endfm
+
+fmod CLIENT is
+	pr COMMANDS .	
+	op Client : -> Class [ctor] .	
+	op docProcessingTimeMean :_ : Float -> Attribute [gather (&)] .	
+	op docProcessingTimeSquaredMean :_ : Float -> Attribute [gather (&)] .	
+	op docProcessed :_ : Nat -> Attribute [gather (&)] .	
+endfm
+
+fmod OFFICER is
+	pr COMMANDS .
+	sorts Officer OfficerState .
+	subsort Officer < Class .
+	ops idle busy : -> OfficerState [ctor] .
+	op Officer : -> Officer [ctor] .
+	op state :_ : OfficerState -> Attribute [gather (&)] .
+endfm
+
+fmod DOC is
+	pr	COMMANDS .
+	
+	*** Application
+	op App : -> Class [ctor] .
+	
+	*** Attribute in docs referring to the application
+	op 	app :_  : Nat -> Attribute [gather (&)] .
+	
+	*** Other attributes
+	op	client :_ : Nat -> Attribute [gather (&)] .
+	op	submitTime :_ : Float -> Attribute [gather (&)] .
+	
+	*** Docs
+	sort Doc .
+	subsort Doc < Class .
+	op Doc1 : -> Doc [ctor] .
+	op Doc2 : -> Doc [ctor] .
+	
+	*** Inquiry rates
+	ops inquiryMinTime inquiryMaxTime : Class -> Float .
+	eq inquiryMinTime(Doc1) = 0.5 .
+	eq inquiryMaxTime(Doc1) = 1.5 .
+	eq inquiryMinTime(Doc2) = 1.0 .
+	eq inquiryMaxTime(Doc2) = 2.0 .
+endfm
+
+mod CLIENT-DYNAMICS is
+	pr	SYSTEM .
+	
+	op	addApp : Nat Nat Float -> Conf .
+	op	requestMissingDocs : Nat Nat Set{Class} -> ActiveConf .
+	
+	var conf : Conf .
+	vars attrSet attrSet2 : AttributeSet .
+	vars timeStep t submitTime docProcessingTimeMean docProcessingTimeSquaredMean : Float .
+	vars id appId clientId nextId currentAppId appAccepted appIncomplete docProcessed : Nat .
+	var missingDoc : Class .
+	var missingDocs : Set{Class} .
+	var apps : AppQueue .
+	
+	*** Application submission
+	rl	{
+			< id : Client | attrSet >
+			< id <- submit >
+			nextId(nextId)
+			conf, time(t), app(currentAppId)
+		}
+		=>
+		{
+			< id : Client | attrSet >
+			addApp(nextId, id, t)
+			nextId(s nextId)
+			[ sampleUniform(minSubmitTime, maxSubmitTime), < id <- submit > ]
+			conf, time(t), app(currentAppId)
+		} .		
+
+	eq	addApp(appId, clientId, submitTime)
+		queue(apps)
+		nextId(nextId)
+		=
+		queue(apps, < appId : App | client : clientId, missing : empty, submitTime : submitTime >)
+		if sampleBernulli(0.8) then < nextId : Doc1 | app : appId > else none fi
+		if sampleBernulli(0.8) then < s nextId : Doc2 | app : appId > else none fi
+		nextId(s s nextId) .
+		
+	*** Application has been accepted
+	rl	{
+			< id : Client | accepted : appAccepted,
+				docProcessingTimeMean : docProcessingTimeMean,
+				docProcessingTimeSquaredMean : docProcessingTimeSquaredMean,
+				docProcessed : docProcessed,
+				attrSet
+			>
+			< id <- accepted : appId, submitTime : submitTime >
+			conf, time(t), app(currentAppId)
+		}
+		=>
+		{
+			< id : Client | accepted : s appAccepted,
+				docProcessingTimeMean : docProcessingTimeMean + (t - submitTime - docProcessingTimeMean) / float(s docProcessed),
+				docProcessingTimeSquaredMean : docProcessingTimeSquaredMean + ((t - submitTime) * (t - submitTime) - docProcessingTimeSquaredMean) / float(s docProcessed),
+				docProcessed : s docProcessed,
+				attrSet
+			>
+			conf, time(t), app(currentAppId)
+		} .
+		
+	*** Application has been detected incomplete
+	rl	< id : Client | incomplete : appIncomplete, attrSet >
+		< id <- incomplete : appId, missing : missingDocs, attrSet2 >
+		=>
+		< id : Client | incomplete : s appIncomplete, attrSet >
+		requestMissingDocs(id, appId, missingDocs) .
+		
+	*** Request missing docs
+	rl	requestMissingDocs(id, appId, (missingDoc, missingDocs))
+		=>
+		requestMissingDocs(id, appId, missingDocs)
+		[ sampleUniform(inquiryMinTime(missingDoc), inquiryMaxTime(missingDoc)), < id <- app : appId, missingDoc : missingDoc > ] .
+		
+	eq	requestMissingDocs(id, appId, empty) = none .
+		
+	*** Missing doc has arrived
+	rl	< id : Client | attrSet >
+		< id <- app : appId, missingDoc : missingDoc >
+		< appId : App | missing : (missingDoc, missingDocs), attrSet2 >
+		nextId(nextId)
+		=>
+		< id : Client | attrSet >
+		< nextId : missingDoc | app : appId >
+		< appId : App | missing : missingDocs, attrSet2 >
+		nextId(s nextId)
+		if missingDocs == empty then [ sampleUniform(minSubmitTime, maxSubmitTime), < id <- additionalSubmit, app : appId >] else none fi .
+		
+	*** Additional submit
+	rl	< id : Client | attrSet >
+		< id <- additionalSubmit, app : appId >
+		< appId : App | attrSet2 >
+		queue(apps)
+		=>
+		< id : Client | attrSet >
+		queue(apps, < appId : App | attrSet2 >) .
+		
+	eq	processTick(< id : Client | attrSet > conf, timeStep) = < id : Client | attrSet > processTick(conf, timeStep) .
+endm
+
+mod OFFICER-DYNAMICS is
+	pr	SYSTEM .
+	pr	SET-CLASS .
+	pr	APP-QUEUE .
+	
+	op processApp : Conf -> ActiveConf [ctor] .
+	op processAppDo : Conf Set{Class} -> ActiveConf [ctor] .
+	op getAppDocs : Nat Conf -> Conf [ctor] .
+	op archiveAppDocs : Nat Conf -> ActiveConf [ctor] .
+	op addProcessAndAccept : Nat Nat Nat Float Float -> ActiveConf [ctor] .
+	op addProcessAndIncomplete : Nat Nat Nat Set{Class} Float -> ActiveConf [ctor] .
+
+	vars conf conf2 : Conf .
+	vars attrSet attrSet2 attrSet3 : AttributeSet .
+	vars t timeStep submitTime processingTime : Float .
+	vars id id1 id2 docId appId docAppId clientId currentAppId : Nat .
+	vars missingDoc, class : Class .
+	vars missingDocs missingDocs2 : Set{Class} .
+	var delayedMessage : DelayedMessage .
+	var	appQueue : AppQueue .
+	
+	*** Application processing
+	rl	{
+			< id : Officer | state : idle, attrSet >
+			< id <- process >
+			queue(< appId : App | attrSet2 >, appQueue)
+			conf, time(t), app(currentAppId)
+		}
+		=>
+		{
+			< id : Officer | state : busy, attrSet >
+			processApp(< id : Officer | state : busy, attrSet > < appId : App | attrSet2 >)
+			queue(appQueue)
+			conf, time(t), app(appId)
+		} .
+		
+	rl	{
+			< id : Officer | state : idle, attrSet >
+			< id <- process >
+			conf
+			queue(empty), time(t), app(currentAppId)
+		}
+		=>
+		{
+			< id : Officer | state : idle, attrSet >
+			[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+			conf
+			queue(empty), time(t), app(currentAppId)
+		} .
+		
+	eq {
+			processApp(< id : Officer | attrSet > < appId : App | attrSet2 >)
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		=
+		{
+			processAppDo(< id : Officer | attrSet > < appId : App | attrSet2 > getAppDocs(appId, conf), (Doc1, Doc2))
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		} .
+	
+	*** Get app docs
+	ceq	getAppDocs(appId, < id : class | app : docAppId, attrSet > conf) = if docAppId == appId then < id : class | app : docAppId, attrSet > else none fi getAppDocs(appId, conf)
+		if class == Doc1 or class == Doc2 .
+	ceq getAppDocs(appId, < id : class | attrSet > conf) = getAppDocs(appId, conf)
+		if class =/= Doc1 and class =/= Doc2 .
+	eq getAppDocs(appId, delayedMessage conf) = getAppDocs(appId, conf) .
+	eq getAppDocs(appId, nextId(id) conf) = getAppDocs(appId, conf) .
+	eq getAppDocs(appId, none) = none .
+	
+	*** Archive app docs
+	ceq	archiveAppDocs(appId, < id : class | app : docAppId, attrSet > conf) = if docAppId =/= appId then < id : class | app : docAppId, attrSet > else none fi archiveAppDocs(appId, conf)
+		if class == Doc1 or class == Doc2 .
+	eq archiveAppDocs(appId, < id : App | attrSet > conf) = if id =/= appId then < id : App | attrSet > else none fi archiveAppDocs(appId, conf) .
+	ceq archiveAppDocs(appId, < id : class | attrSet > conf) = < id : class | attrSet > archiveAppDocs(appId, conf)
+		if class =/= App and class =/= Doc1 and class =/= Doc2 .
+	eq archiveAppDocs(appId, delayedMessage conf) = delayedMessage archiveAppDocs(appId, conf) .
+	eq archiveAppDocs(appId, nextId(id) conf) = nextId(id) archiveAppDocs(appId, conf) .
+	eq archiveAppDocs(appId, none) = none .
+	
+	*** Check doc
+	eq	processAppDo(< id : Officer | attrSet > < appId : App | attrSet2 > < docId : missingDoc | attrSet3 > conf, (missingDoc, missingDocs))
+		=
+		processAppDo(< id : Officer | attrSet > < appId : App | attrSet2 > conf, missingDocs) .
+		
+	*** Application accepted
+	crl	{
+			processAppDo(
+				< id : Officer | state : busy, attrSet >
+				< appId : App | client : clientId, missing : missingDocs2, submitTime : submitTime, attrSet2 >
+				, missingDocs
+			)
+			< id : Officer | state : busy, attrSet >
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		=>
+		{
+			< id : Officer | state : busy, attrSet >
+			[ sampleUniform(minProcessingTime, maxProcessingTime), < id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime > ]
+			archiveAppDocs(appId, conf)
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		if missingDocs == empty .
+
+	rl	< id : Officer | state : busy, attrSet >
+		< id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime >
+		=>
+		< id : Officer | state : idle, attrSet >
+		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- accepted : appId, submitTime : submitTime > ] .
+
+	*** Application incomplete
+	crl	{
+			processAppDo(
+				< id : Officer | state : busy, attrSet >
+				< appId : App | client : clientId, missing : missingDocs2, attrSet2 >
+				, missingDocs
+			)
+			< id : Officer | state : busy, attrSet >
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		=>
+		{
+			< appId : App | client : clientId, missing : missingDocs, attrSet2 >
+			< id : Officer | state : busy, attrSet >
+			[ sampleUniform(minProcessingTime, maxProcessingTime), < id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs > ]
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		if missingDocs =/= empty .
+		
+	rl	< id : Officer | state : busy, attrSet >
+		< id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs >
+		=>
+		< id : Officer | state : idle, attrSet >
+		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- incomplete : appId, missing : missingDocs > ] .
+
+	eq	processTick(< id : Officer | attrSet > conf, timeStep) = < id : Officer | attrSet > processTick(conf, timeStep) .
+endm
+
+mod DOC-DYNAMICS is
+	pr	SYSTEM .
+
+	var timeStep : Float .
+	var conf : Conf .
+	var attrSet : AttributeSet .
+	var id : Nat .
+	
+	eq	processTick(< id : App | attrSet > conf, timeStep) = < id : App | attrSet > processTick(conf, timeStep) .
+	eq	processTick(< id : Doc1 | attrSet > conf, timeStep) = < id : Doc1 | attrSet > processTick(conf, timeStep) .
+	eq	processTick(< id : Doc2 | attrSet > conf, timeStep) = < id : Doc2 | attrSet > processTick(conf, timeStep) .
+endm
+
+mod SYSTEM-DYNAMICS is
+	inc CLIENT-DYNAMICS .
+	inc OFFICER-DYNAMICS .
+	inc DOC-DYNAMICS .
+
+	op	initState : -> Config [ctor] .
+	
+	op	initOfficers : Nat -> ActiveConf [ctor] .
+	
+	var id : Nat .
+	
+	eq	initState =  {
+			< 1 : Client | accepted : 0, incomplete : 0, docProcessingTimeMean : 0.0, docProcessingTimeSquaredMean : 0.0, docProcessed : 0 >
+			[ sampleUniform(minSubmitTime, maxSubmitTime), < 1 <- submit > ]
+			initOfficers(N)
+			queue(empty)
+			nextId(1)
+			, time(0.0), app(0)
+		} .
+	
+	rl	initOfficers(s id)
+		=>
+		< s id : Officer | state : idle >
+		initOfficers(id)
+		[ sampleUniform(minProcessTime, maxProcessTime), < s id <- process > ] .
+		
+	eq	initOfficers(0) = none .
+
+endm
+
+mod STATE-FORMULAE is
+	inc	SYSTEM-DYNAMICS .
+
+	op	val	: Nat Config -> Float [ctor] .
+	op	val	: Nat Conf -> Float [ctor] .
+	
+	op getTime : Config -> Float .
+	
+	var config : Config .
+	var conf : Conf .
+	var	activeConf : ActiveConf .
+	var msg : Message .
+	var dmsg : DelayedMessage .
+	var class : Class .
+	var apps : AppQueue .
+	var obj : Object .
+
+	var attrSet : AttributeSet .
+	vars t docProcessingTimeMean : Float .
+	vars i n id currenAppId docProcessed : Nat .
+	var state : OfficerState .
+
+	eq	val(2, config) = getTime(config) .	
+	eq getTime({ conf, time(t), app(currenAppId) }) = t .
+
+	***val(i) = state function if i > 10 .
+	ceq	val(i, { conf, time(t), app(currenAppId) }) = val(i, conf) if i > 10 .
+
+	***val(11) = doc processing time mean
+	op	docProcessingTimeMean : Conf -> Float .
+	eq	val(11, conf) = docProcessingTimeMean(conf) .
+	eq	docProcessingTimeMean(< 1 : Client | docProcessingTimeMean : docProcessingTimeMean, attrSet > conf) = docProcessingTimeMean .
+	
+	***val(12) = number of processed docs by officer 1
+	op	docProcessed : Conf -> Float .
+	eq	val(12, conf) = docProcessed(conf) .
+	eq	docProcessed(< 1 : Client | docProcessed : docProcessed, attrSet > conf) = float(docProcessed) .
+	
+	***val(13) = queue length
+	eq	val(13, conf) = float(queueLength(conf)) .
+
+	***val(14) = officer 1 busy
+	op	officerBusy : Conf -> Float .
+	eq	val(14, conf) = officerBusy(conf) .
+	eq	officerBusy(< 1 : Officer | state : state, attrSet > conf) = if state == busy then 1.0 else 0.0 fi .
+	
+	***val(15) = percent busy officers
+	op	percentBusy : Conf Nat -> Float .
+	eq	val(15, conf) = percentBusy(conf, 0) .
+	eq	percentBusy(< id : Officer | state : busy > conf, n) = percentBusy(conf, s n) .
+	eq	percentBusy(< id : Officer | state : idle > conf, n) = percentBusy(conf, n) .
+	ceq	percentBusy(< id : class | attrSet > conf, n) = percentBusy(conf, n) if class =/= Officer .
+	eq	percentBusy(queue(apps) conf, n) = percentBusy(conf, n) .
+	eq	percentBusy(dmsg conf, n) = percentBusy(conf, n) .
+	eq	percentBusy(none, n) = float(n) / float(N) .
+endm
