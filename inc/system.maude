@@ -1,5 +1,10 @@
 load stsampler.maude
 
+fmod PARAMETERS is
+	pr	FLOAT .
+	ops T dt : -> Float .
+endfm
+
 fmod CLASS is
 	sort	Class .
 endfm
@@ -113,9 +118,6 @@ mod	SYSTEM is
 	pr	ST-SAMPLER .
 	pr	PARAMETERS .
 	pr	CONF .
-	pr	CLIENT .
-	pr	OFFICER .
-	pr	DOC .
 	pr	APP-QUEUE .
 	pr	ID-PROVIDER .
 

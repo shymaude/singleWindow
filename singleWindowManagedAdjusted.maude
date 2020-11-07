@@ -9,6 +9,7 @@ endfm
 
 mod MANAGER-DYNAMICS is
 	pr	SYSTEM .
+	pr	OFFICER .
 	pr	MANAGER .
 	
 	op scheduleManageOfficers : -> Conf [ctor] .

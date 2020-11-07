@@ -3,17 +3,19 @@ in singleWindow.shymaude
 fmod PARAMETERS is
 	pr	NAT .
 	pr	FLOAT .
+
 	ops T dt : -> Float .
 	op N : -> Nat .
 	ops L0 L1 : -> Nat .
-	eq	T = 40.0 .
-	eq	dt = 0.1 .
 	ops minDeliveryTime maxDeliveryTime
 		minSubmitTime maxSubmitTime
 		minProcessTime maxProcessTime
 		minProcessingTime maxProcessingTime
 		minManagingTime maxManagingTime
 		: -> Float .
+
+	eq	T = 40.0 .
+	eq	dt = 0.1 .
 	eq minDeliveryTime = 0.1 .
 	eq maxDeliveryTime = 0.2 .
 	eq minSubmitTime = 0.1 .
@@ -29,13 +31,18 @@ fmod PARAMETERS is
 	eq L1 = 80 .
 endfm
 
-shymod OFFICER is
-	pr COMMANDS .
+shymod OFFICER-STATE is
 	sort OfficerState .
 	ops idle busy : -> OfficerState [ctor] .
-	op Officer : -> Class [ctor] .
-	op state :_ : OfficerState -> Attribute [gather (&)] .
-	op releasing :_ : Bool -> Attribute [gather (&)] .
+endshy
+
+shymod OFFICER is
+	pr COMMANDS .
+	pr OFFICER-STATE .
+	class Officer is disc
+		state : OfficerState,
+		releasing : Bool
+	endclass
 endshy
 
 shymod MANAGER-COMMANDS is
@@ -46,12 +53,14 @@ endshy
 
 shymod MANAGER is
 	pr MANAGER-COMMANDS .
-	op Manager : -> Class [ctor] .
-	op numOfficers :_ : Nat -> Attribute [gather (&)] .
+	class Manager is disc
+		numOfficers : Nat
+	endclass
 endshy
 
 shymod MANAGER-DYNAMICS is
 	pr	SYSTEM .
+	pr	OFFICER .
 	pr	MANAGER .
 	
 	var t timeStep : Float .
@@ -106,25 +115,72 @@ shymod MANAGER-DYNAMICS is
 	eq	processTick(< id : Manager | attrSet > conf, timeStep) = < id : Manager | attrSet > processTick(conf, timeStep) .
 endshy
 
-shymod MANAGED-OFFICER-DYNAMICS is
+shymod OFFICER-DYNAMICS is
 	pr	SYSTEM .
 	pr	OFFICER .
 	pr	MANAGER-COMMANDS .
+	pr	BASE-OFFICER-DYNAMICS .
 	
+	var t timeStep : Float .
+	var conf : Conf .
+	var appQueue : AppQueue .
 	var attrSet : AttributeSet .
-	var id : Nat .
+	vars id appId clientId currentAppId : Nat .
+	var submitTime : Float .
+	var missingDocs : Set{Class} .
 	var releasing : Bool .
 	
+	*** Indicate realeasing
 	rl	< id : Officer | releasing : releasing, attrSet >
 		< id <- releaseOfficer >
 		=>
 		< id : Officer | releasing : true, attrSet > .
+
+	*** Add process and accept scheduled messages
+	rl	{
+			< id : Officer | state : busy, releasing : releasing, attrSet >
+			< id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime >
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		=>
+		{
+			if releasing
+				then none
+				else
+					< id : Officer | state : idle, releasing : false, attrSet >
+					[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+			fi
+			[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- accepted : appId, submitTime : submitTime > ]
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		} .
+
+	*** Add process and incomplete scheduled messages
+	rl
+		{
+			< id : Officer | state : busy, releasing : releasing, attrSet >
+			< id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs >
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		=>
+		{
+			if releasing
+				then none
+				else
+					< id : Officer | state : idle, releasing : false, attrSet >
+					[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+			fi
+			[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- incomplete : appId, missing : missingDocs > ]
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		} .
 endshy
 
 shymod SYSTEM-DYNAMICS is
 	inc CLIENT-DYNAMICS .
 	inc OFFICER-DYNAMICS .
-	inc MANAGED-OFFICER-DYNAMICS .
 	inc MANAGER-DYNAMICS .
 	inc DOC-DYNAMICS .
 

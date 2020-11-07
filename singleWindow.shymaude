@@ -1,11 +1,18 @@
 fmod	PARAMETERS is
 	pr	NAT .
 	pr	FLOAT .
+
 	ops T dt : -> Float .
 	op N : -> Nat .
+	ops L0 L1 : -> Nat .
+	ops minDeliveryTime maxDeliveryTime
+		minSubmitTime maxSubmitTime
+		minProcessTime maxProcessTime
+		minProcessingTime maxProcessingTime
+		: -> Float .
+
 	eq	T = 40.0 .
 	eq	dt = 0.1 .
-	ops minDeliveryTime maxDeliveryTime minSubmitTime maxSubmitTime minProcessTime maxProcessTime minProcessingTime maxProcessingTime : -> Float .
 	eq minDeliveryTime = 0.1 .
 	eq maxDeliveryTime = 0.2 .
 	eq minSubmitTime = 0.1 .
@@ -83,7 +90,10 @@ shymod DOC is
 endshy
 
 shymod CLIENT-DYNAMICS is
+	pr	SET-CLASS .
 	pr	SYSTEM .
+	pr	CLIENT .
+	pr	DOC .
 	
 	op	addApp : Nat Nat Float -> Conf .
 	op	requestMissingDocs : Nat Nat Set{Class} -> ActiveConf .
@@ -182,10 +192,12 @@ shymod CLIENT-DYNAMICS is
 	eq	processTick(< id : Client | attrSet > conf, timeStep) = < id : Client | attrSet > processTick(conf, timeStep) .
 endshy
 
-shymod OFFICER-DYNAMICS is
-	pr	SYSTEM .
+shymod BASE-OFFICER-DYNAMICS is
 	pr	SET-CLASS .
 	pr	APP-QUEUE .
+	pr	SYSTEM .
+	pr	OFFICER .
+	pr	DOC .
 	
 	op processApp : Conf -> ActiveConf [ctor] .
 	op processAppDo : Conf Set{Class} -> ActiveConf [ctor] .
@@ -288,13 +300,6 @@ shymod OFFICER-DYNAMICS is
 		}
 		if missingDocs == empty .
 
-	rl	< id : Officer | state : busy, attrSet >
-		< id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime >
-		=>
-		< id : Officer | state : idle, attrSet >
-		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
-		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- accepted : appId, submitTime : submitTime > ] .
-
 	*** Application incomplete
 	crl	{
 			processAppDo(
@@ -316,18 +321,12 @@ shymod OFFICER-DYNAMICS is
 		}
 		if missingDocs =/= empty .
 		
-	rl	< id : Officer | state : busy, attrSet >
-		< id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs >
-		=>
-		< id : Officer | state : idle, attrSet >
-		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
-		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- incomplete : appId, missing : missingDocs > ] .
-
 	eq	processTick(< id : Officer | attrSet > conf, timeStep) = < id : Officer | attrSet > processTick(conf, timeStep) .
 endshy
 
 shymod DOC-DYNAMICS is
 	pr	SYSTEM .
+	pr	DOC .
 
 	var timeStep : Float .
 	var conf : Conf .
@@ -337,6 +336,34 @@ shymod DOC-DYNAMICS is
 	eq	processTick(< id : App | attrSet > conf, timeStep) = < id : App | attrSet > processTick(conf, timeStep) .
 	eq	processTick(< id : Doc1 | attrSet > conf, timeStep) = < id : Doc1 | attrSet > processTick(conf, timeStep) .
 	eq	processTick(< id : Doc2 | attrSet > conf, timeStep) = < id : Doc2 | attrSet > processTick(conf, timeStep) .
+endshy
+
+shymod OFFICER-DYNAMICS is
+	pr	SYSTEM .
+	pr	BASE-OFFICER-DYNAMICS .
+	pr	OFFICER .
+	
+	var attrSet : AttributeSet .
+	vars id appId clientId : Nat .
+	var submitTime : Float .
+	var missingDocs : Set{Class} .
+	var releasing : Bool .
+	
+	*** Add process and accept scheduled messages
+	rl	< id : Officer | state : busy, attrSet >
+		< id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime >
+		=>
+		< id : Officer | state : idle, attrSet >
+		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- accepted : appId, submitTime : submitTime > ] .
+
+	*** Add process and incomplete scheduled messages
+	rl	< id : Officer | state : busy, attrSet >
+		< id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs >
+		=>
+		< id : Officer | state : idle, attrSet >
+		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- incomplete : appId, missing : missingDocs > ] .
 endshy
 
 shymod SYSTEM-DYNAMICS is

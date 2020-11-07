@@ -2,13 +2,15 @@ in singleWindowManaged.shymaude
 
 shymod MANAGER is
 	pr MANAGER-COMMANDS .
-	op Manager : -> Class [ctor] .
-	op numOfficers :_ : Nat -> Attribute [gather (&)] .
-	op managing :_ : Bool -> Attribute [gather (&)] .
+	class Manager is disc
+		numOfficers : Nat,
+		managing : Bool
+	endclass
 endshy
 
 shymod MANAGER-DYNAMICS is
 	pr	SYSTEM .
+	pr	OFFICER .
 	pr	MANAGER .
 	
 	op scheduleManageOfficers : -> Conf [ctor] .

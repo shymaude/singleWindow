@@ -3,17 +3,19 @@ in singleWindow.maude
 fmod PARAMETERS is
 	pr	NAT .
 	pr	FLOAT .
+
 	ops T dt : -> Float .
 	op N : -> Nat .
 	ops L0 L1 : -> Nat .
-	eq	T = 40.0 .
-	eq	dt = 0.1 .
 	ops minDeliveryTime maxDeliveryTime
 		minSubmitTime maxSubmitTime
 		minProcessTime maxProcessTime
 		minProcessingTime maxProcessingTime
 		minManagingTime maxManagingTime
 		: -> Float .
+
+	eq	T = 40.0 .
+	eq	dt = 0.1 .
 	eq minDeliveryTime = 0.1 .
 	eq maxDeliveryTime = 0.2 .
 	eq minSubmitTime = 0.1 .
@@ -29,10 +31,14 @@ fmod PARAMETERS is
 	eq L1 = 80 .
 endfm
 
-fmod OFFICER is
-	pr COMMANDS .
+fmod OFFICER-STATE is
 	sort OfficerState .
 	ops idle busy : -> OfficerState [ctor] .
+endfm
+
+fmod OFFICER is
+	pr COMMANDS .
+	pr OFFICER-STATE .
 	op Officer : -> Class [ctor] .
 	op state :_ : OfficerState -> Attribute [gather (&)] .
 	op releasing :_ : Bool -> Attribute [gather (&)] .
@@ -52,6 +58,7 @@ endfm
 
 mod MANAGER-DYNAMICS is
 	pr	SYSTEM .
+	pr	OFFICER .
 	pr	MANAGER .
 	
 	var t timeStep : Float .
@@ -106,25 +113,73 @@ mod MANAGER-DYNAMICS is
 	eq	processTick(< id : Manager | attrSet > conf, timeStep) = < id : Manager | attrSet > processTick(conf, timeStep) .
 endm
 
-mod MANAGED-OFFICER-DYNAMICS is
+mod OFFICER-DYNAMICS is
 	pr	SYSTEM .
 	pr	OFFICER .
 	pr	MANAGER-COMMANDS .
+	pr	BASE-OFFICER-DYNAMICS .
 	
+	var t timeStep : Float .
+	var conf : Conf .
+	var appQueue : AppQueue .
 	var attrSet : AttributeSet .
-	var id : Nat .
+	vars id appId clientId currentAppId : Nat .
+	var submitTime : Float .
+	var missingDocs : Set{Class} .
 	var releasing : Bool .
 	
+	*** Indicate realeasing
 	rl	< id : Officer | releasing : releasing, attrSet >
 		< id <- releaseOfficer >
 		=>
 		< id : Officer | releasing : true, attrSet > .
+
+	*** Add process and accept scheduled messages
+	rl	{
+			< id : Officer | state : busy, releasing : releasing, attrSet >
+			< id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime >
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		=>
+		{
+			if releasing
+				then none
+				else
+					< id : Officer | state : idle, releasing : false, attrSet >
+					[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+			fi
+			[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- accepted : appId, submitTime : submitTime > ]
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		} .
+
+	*** Add process and incomplete scheduled messages
+	rl
+		{
+			< id : Officer | state : busy, releasing : releasing, attrSet >
+			< id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs >
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		}
+		=>
+		{
+			if releasing
+				then none
+				else
+					< id : Officer | state : idle, releasing : false, attrSet >
+					[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+			fi
+			[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- incomplete : appId, missing : missingDocs > ]
+			conf
+			queue(appQueue), time(t), app(currentAppId)
+		} .
 endm
 
 mod SYSTEM-DYNAMICS is
 	inc CLIENT-DYNAMICS .
 	inc OFFICER-DYNAMICS .
-	inc MANAGED-OFFICER-DYNAMICS .
+	inc OFFICER-DYNAMICS .
 	inc MANAGER-DYNAMICS .
 	inc DOC-DYNAMICS .
 
