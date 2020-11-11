@@ -1,0 +1,2 @@
+DocProcessingTime(x) = if { s.rval(2) >= x } then { s.rval(11) } else # DocProcessingTime({x}) fi ;
+eval E[ DocProcessingTime({ 40.0 }) ] ;

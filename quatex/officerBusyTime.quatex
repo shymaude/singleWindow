@@ -1,0 +1,6 @@
+OfficerBusyTime(busyTime, currentTime, time) =
+	if { s.rval(2) >= time }
+		then { busyTime }
+		else # OfficerBusyTime({ busyTime + s.rval(14) * (s.rval(2) - currentTime) }, { s.rval(2) }, { time })
+	fi;
+eval E[ OfficerBusyTime({ 0.0 }, { 0.0 }, { 40.0 }) ] ;

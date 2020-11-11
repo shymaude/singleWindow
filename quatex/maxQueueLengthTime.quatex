@@ -1,0 +1,10 @@
+MaxQueueLengthTime(maxLength, maxLengthTime, time) =
+	if { s.rval(2) >= time }
+		then { maxLengthTime }
+		else
+			if { s.rval(13) > maxLength }
+				then # MaxQueueLengthTime({ s.rval(13) }, { s.rval(2) }, { time },)
+				else # MaxQueueLengthTime({ maxLength }, { maxLengthTime }, { time })
+			fi
+	fi;
+eval E[ MaxQueueLengthTime({ 0.0 }, { 0.0 }, { 40.0 }) ] ;
