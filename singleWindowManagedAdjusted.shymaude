@@ -28,7 +28,7 @@ shymod MANAGER-DYNAMICS is
 		< id : Manager | numOfficers : s numOfficers, attrSet >
 		if numOfficers == 0 .
 	
-	crl	{
+	pcrl	{
 			< id : Manager | numOfficers : s numOfficers, managing : managing >
 			< id <- manageOfficers >
 			queue(appQueue)
@@ -51,7 +51,7 @@ shymod MANAGER-DYNAMICS is
 							then
 								{
 									< id : Manager | numOfficers : numOfficers, managing : managing >
-									[ sampleUniform(minDeliveryTime, maxDeliveryTime), < s numOfficers <- releaseOfficer > ]
+									[ D, < s numOfficers <- releaseOfficer > ]
 									scheduleManageOfficers
 									queue(appQueue)
 									conf, time(t), app(currentAppId)
@@ -73,7 +73,8 @@ shymod MANAGER-DYNAMICS is
 					conf, time(t), app(currentAppId)
 				}
 		fi
-	if numOfficers > 0 .
+	if numOfficers > 0
+		with probability D := Uniform(minDeliveryTime, maxDeliveryTime) .
 	
 	eq scheduleManageOfficers = [ sampleUniform(minManagingTime, maxManagingTime), < 1 <- manageOfficers > ] .
 				
@@ -92,22 +93,26 @@ shymod SYSTEM-DYNAMICS is
 	
 	var id : Nat .
 	
-	eq	initState =  {
+	prl	initState
+	=>
+		{
 			< 1 : Client | accepted : 0, incomplete : 0, docProcessingTimeMean : 0.0, docProcessingTimeSquaredMean : 0.0, docProcessed : 0 >
 			< 1 : Manager | numOfficers : N, managing : false >
-			[ sampleUniform(minSubmitTime, maxSubmitTime), < 1 <- submit > ]
-			[ sampleUniform(minManagingTime, maxManagingTime), < 1 <- manageOfficers > ]
+			[ D, < 1 <- submit > ]
+			[ E, < 1 <- manageOfficers > ]
 			initOfficers(N)
 			queue(empty)
 			nextId(1)
 			, time(0.0), app(0)
-		} .
+		}
+			with probability D := Uniform(minSubmitTime, maxSubmitTime), E := Uniform(minManagingTime, maxManagingTime) .
 	
-	rl	initOfficers(s id)
+	prl	initOfficers(s id)
 		=>
 		< s id : Officer | state : idle, releasing : false >
 		initOfficers(id)
-		[ sampleUniform(minProcessTime, maxProcessTime), < s id <- process > ] .
+		[ D, < s id <- process > ]
+			with probability D := Uniform(minProcessTime, maxProcessTime) .
 		
 	eq	initOfficers(0) = none .
 

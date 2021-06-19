@@ -107,7 +107,7 @@ shymod CLIENT-DYNAMICS is
 	var apps : AppQueue .
 	
 	*** Application submission
-	rl	{
+	prl	{
 			< id : Client | attrSet >
 			< id <- submit >
 			nextId(nextId)
@@ -118,18 +118,20 @@ shymod CLIENT-DYNAMICS is
 			< id : Client | attrSet >
 			addApp(nextId, id, t)
 			nextId(s nextId)
-			[ sampleUniform(minSubmitTime, maxSubmitTime), < id <- submit > ]
+			[ D, < id <- submit > ]
 			conf, time(t), app(currentAppId)
-		} .		
+		}
+			with probability D := Uniform(minSubmitTime, maxSubmitTime) .		
 
-	eq	addApp(appId, clientId, submitTime)
+	prl	addApp(appId, clientId, submitTime)
 		queue(apps)
 		nextId(nextId)
-		=
+		=>
 		queue(apps, < appId : App | client : clientId, missing : empty, submitTime : submitTime >)
-		if sampleBernulli(0.8) then < nextId : Doc1 | app : appId > else none fi
-		if sampleBernulli(0.8) then < s nextId : Doc2 | app : appId > else none fi
-		nextId(s s nextId) .
+		if D then < nextId : Doc1 | app : appId > else none fi
+		if E then < s nextId : Doc2 | app : appId > else none fi
+		nextId(s s nextId)
+			with probability D := Bernulli(0.8), E := Bernulli(0.8) .
 		
 	*** Application has been accepted
 	rl	{
@@ -161,15 +163,16 @@ shymod CLIENT-DYNAMICS is
 		requestMissingDocs(id, appId, missingDocs) .
 		
 	*** Request missing docs
-	rl	requestMissingDocs(id, appId, (missingDoc, missingDocs))
+	prl	requestMissingDocs(id, appId, (missingDoc, missingDocs))
 		=>
 		requestMissingDocs(id, appId, missingDocs)
-		[ sampleUniform(inquiryMinTime(missingDoc), inquiryMaxTime(missingDoc)), < id <- app : appId, missingDoc : missingDoc > ] .
+		[ D, < id <- app : appId, missingDoc : missingDoc > ]
+			with probability D := Uniform(inquiryMinTime(missingDoc), inquiryMaxTime(missingDoc)) .
 		
 	eq	requestMissingDocs(id, appId, empty) = none .
 		
 	*** Missing doc has arrived
-	rl	< id : Client | attrSet >
+	prl	< id : Client | attrSet >
 		< id <- app : appId, missingDoc : missingDoc >
 		< appId : App | missing : (missingDoc, missingDocs), attrSet2 >
 		nextId(nextId)
@@ -178,7 +181,8 @@ shymod CLIENT-DYNAMICS is
 		< nextId : missingDoc | app : appId >
 		< appId : App | missing : missingDocs, attrSet2 >
 		nextId(s nextId)
-		if missingDocs == empty then [ sampleUniform(minSubmitTime, maxSubmitTime), < id <- additionalSubmit, app : appId >] else none fi .
+		if missingDocs == empty then [ D, < id <- additionalSubmit, app : appId >] else none fi
+			with probability D := Uniform(minSubmitTime, maxSubmitTime) .
 		
 	*** Additional submit
 	rl	< id : Client | attrSet >
@@ -230,7 +234,7 @@ shymod BASE-OFFICER-DYNAMICS is
 			conf, time(t), app(appId)
 		} .
 		
-	rl	{
+	prl	{
 			< id : Officer | state : idle, attrSet >
 			< id <- process >
 			conf
@@ -239,10 +243,11 @@ shymod BASE-OFFICER-DYNAMICS is
 		=>
 		{
 			< id : Officer | state : idle, attrSet >
-			[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
+			[ D, < id <- process > ]
 			conf
 			queue(empty), time(t), app(currentAppId)
-		} .
+		}
+			with probability D := Uniform(minProcessTime, maxProcessTime) .
 		
 	eq {
 			processApp(< id : Officer | attrSet > < appId : App | attrSet2 >)
@@ -281,7 +286,7 @@ shymod BASE-OFFICER-DYNAMICS is
 		processAppDo(< id : Officer | attrSet > < appId : App | attrSet2 > conf, missingDocs) .
 		
 	*** Application accepted
-	crl	{
+	pcrl	{
 			processAppDo(
 				< id : Officer | state : busy, attrSet >
 				< appId : App | client : clientId, missing : missingDocs2, submitTime : submitTime, attrSet2 >
@@ -294,14 +299,15 @@ shymod BASE-OFFICER-DYNAMICS is
 		=>
 		{
 			< id : Officer | state : busy, attrSet >
-			[ sampleUniform(minProcessingTime, maxProcessingTime), < id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime > ]
+			[ D, < id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime > ]
 			archiveAppDocs(appId, conf)
 			queue(appQueue), time(t), app(currentAppId)
 		}
-		if missingDocs == empty .
+		if missingDocs == empty
+			with probability D := Uniform(minProcessingTime, maxProcessingTime) .
 
 	*** Application incomplete
-	crl	{
+	pcrl	{
 			processAppDo(
 				< id : Officer | state : busy, attrSet >
 				< appId : App | client : clientId, missing : missingDocs2, attrSet2 >
@@ -315,11 +321,12 @@ shymod BASE-OFFICER-DYNAMICS is
 		{
 			< appId : App | client : clientId, missing : missingDocs, attrSet2 >
 			< id : Officer | state : busy, attrSet >
-			[ sampleUniform(minProcessingTime, maxProcessingTime), < id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs > ]
+			[ D, < id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs > ]
 			conf
 			queue(appQueue), time(t), app(currentAppId)
 		}
-		if missingDocs =/= empty .
+		if missingDocs =/= empty
+			with probability D := Uniform(minProcessingTime, maxProcessingTime) .
 		
 	eq	processTick(< id : Officer | attrSet > conf, timeStep) = < id : Officer | attrSet > processTick(conf, timeStep) .
 endshy
@@ -350,20 +357,22 @@ shymod OFFICER-DYNAMICS is
 	var releasing : Bool .
 	
 	*** Add process and accept scheduled messages
-	rl	< id : Officer | state : busy, attrSet >
+	prl	< id : Officer | state : busy, attrSet >
 		< id <- addProcessAndAccept, clientId : clientId, appId : appId, submitTime : submitTime >
 		=>
 		< id : Officer | state : idle, attrSet >
-		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
-		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- accepted : appId, submitTime : submitTime > ] .
+		[ D, < id <- process > ]
+		[ E, < clientId <- accepted : appId, submitTime : submitTime > ]
+			with probability D := Uniform(minProcessTime, maxProcessTime), E := Uniform(minDeliveryTime, maxDeliveryTime) .
 
 	*** Add process and incomplete scheduled messages
-	rl	< id : Officer | state : busy, attrSet >
+	prl	< id : Officer | state : busy, attrSet >
 		< id <- addProcessAndIncomplete, clientId : clientId, appId : appId, missingDocs : missingDocs >
 		=>
 		< id : Officer | state : idle, attrSet >
-		[ sampleUniform(minProcessTime, maxProcessTime), < id <- process > ]
-		[ sampleUniform(minDeliveryTime, maxDeliveryTime), < clientId <- incomplete : appId, missing : missingDocs > ] .
+		[ D, < id <- process > ]
+		[ E, < clientId <- incomplete : appId, missing : missingDocs > ]
+			with probability D := Uniform(minProcessTime, maxProcessTime), E := Uniform(minDeliveryTime, maxDeliveryTime) .
 endshy
 
 shymod SYSTEM-DYNAMICS is
@@ -377,20 +386,24 @@ shymod SYSTEM-DYNAMICS is
 	
 	var id : Nat .
 	
-	eq	initState =  {
+	prl	initState
+		=>
+		{
 			< 1 : Client | accepted : 0, incomplete : 0, docProcessingTimeMean : 0.0, docProcessingTimeSquaredMean : 0.0, docProcessed : 0 >
-			[ sampleUniform(minSubmitTime, maxSubmitTime), < 1 <- submit > ]
+			[ D, < 1 <- submit > ]
 			initOfficers(N)
 			queue(empty)
 			nextId(1)
 			, time(0.0), app(0)
-		} .
+		}
+			with probability D := Uniform(minSubmitTime, maxSubmitTime) .
 	
-	rl	initOfficers(s id)
+	prl	initOfficers(s id)
 		=>
 		< s id : Officer | state : idle >
 		initOfficers(id)
-		[ sampleUniform(minProcessTime, maxProcessTime), < s id <- process > ] .
+		[ D, < s id <- process > ]
+			with probability D := Uniform(minProcessTime, maxProcessTime) .
 		
 	eq	initOfficers(0) = none .
 
